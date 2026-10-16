@@ -1,7 +1,7 @@
 # DeepSeek Harness — Step-by-Step Study Guide
 
-> **Repo:** [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (`master` branch)
-> **What it is:** An open-source agent harness ("everything is a plugin") built on [Cordis](https://github.com/cordiverse/cordis). It is also the evaluation rig DeepSeek uses internally for its own models.
+> **Repo:** this checkout (`study/deepseek-harness-guide` branch — snapshot of upstream at commit `86a4022`)
+> **What it is:** An open-source agent harness ("everything is a plugin") built on [Cordis](./vendor/cordis). Its minimal profile doubles as a reproducible evaluation rig.
 > **Stack:** TypeScript monorepo (pnpm workspaces), Cordis plugin framework, with a Python SDK.
 > **License:** MIT
 
@@ -11,7 +11,7 @@ Read top to bottom: it follows the real execution path — from the `dsh` comman
 
 - ⭐ marks **critical entry points** — start reading code here.
 - Every code snippet has inline comments explaining each important line.
-- Every file reference links directly to the upstream repo.
+- Every file reference is a local relative path (`[name](./path#Lstart-Lend`) you can open directly in this checkout.
 - Tick the `- [ ]` boxes as you complete each milestone.
 
 **Suggested path:** start with the Cordis prerequisite (nothing else makes sense without it), skim the five subsystem overviews (30 min), then go deep in order, running the milestone exercises as you go.
@@ -52,7 +52,7 @@ flowchart TB
         SDK <--> AGENT
     end
     subgraph EVAL["5. Presets & Evaluation"]
-        MIN["⭐ sdk-minimal profile<br/>fixed persona + bash only"]
+        MIN["⭐ sdk-minimal profile<br/>fixed persona, minimal toolset"]
         BENCH["benchmarks/ (perf gates)"]
         GRADER["external grader<br/>reads JSONL trajectory"]
         MIN -.-> GRADER
@@ -68,15 +68,15 @@ flowchart TB
 Before Chapter 1 makes sense, you need the framework the whole harness is built on. DeepSeek Harness is not a program with plugins — it **is** a Cordis plugin tree. The `dsh` launcher (Chapter 1) assembles the tree, but every behavior you will study — the agent loop, tools, sandbox, sessions — is just plugins registering services, listeners, and tools on a shared **Context**. The design principle: **composition is explicit and disposable** — every registration is tied to a plugin fiber's lifecycle, so unloading a plugin unwinds exactly what it contributed, and nothing leaks. Read this chapter once, carefully; everything after it assumes you know what `ctx`, `inject`, `effect`, and `waterfall` mean.
 
 **Key files**
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/cordis/src/context.ts — the `Context` class: service registry, `plugin()`, `effect()`, `extend()`
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/cordis/src/service.ts — the `Service` base class: `super(ctx, name)` registers, fiber disposal unregisters
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/cordis/src/events.ts — `waterfall()` implementation and the five dispatch modes (`emit`, `parallel`, `serial`, `bail`, `waterfall`)
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/cordis/src/fiber.ts — plugin fiber lifecycle: `inject` resolution, activation, disposal
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-primer.md — the canonical waterfall semantics and Loader configuration rules
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/scope/src/index.ts — `createScope()`: the real-world example of fiber-scoped contexts
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/ssh/sandbox-ssh/src/index.ts — `static inject = ['ssh']`: dependency injection in one line
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/preset/persona/src/index.ts — `ctx.effect()` as the registration primitive
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/shell/src/index.ts — the canonical capability seam (Service Definition)
+- ⭐ [context.ts](./vendor/cordis/src/context.ts) — the `Context` class: service registry, `plugin()`, `effect()`, `extend()`
+- ⭐ [service.ts](./vendor/cordis/src/service.ts#L42-L59) — the `Service` base class: `super(ctx, name)` registers, fiber disposal unregisters
+- ⭐ [events.ts](./vendor/cordis/src/events.ts#L234-L243) — `waterfall()` implementation and the five dispatch modes (`emit`, `parallel`, `serial`, `bail`, `waterfall`)
+- ⭐ [fiber.ts](./vendor/cordis/src/fiber.ts#L415-L418) — plugin fiber lifecycle: `inject` resolution, activation, disposal
+- [cordis-primer.md](./docs/cordis-primer.md) — the canonical waterfall semantics and Loader configuration rules
+- [index.ts](./packages/core/scope/src/index.ts#L137-L147) — `createScope()`: the real-world example of fiber-scoped contexts
+- [index.ts](./packages/ssh/sandbox-ssh/src/index.ts) — `static inject = ['ssh']`: dependency injection in one line
+- [index.ts](./packages/preset/persona/src/index.ts) — `ctx.effect()` as the registration primitive
+- [index.ts](./packages/shell/shell/src/index.ts) — the canonical capability seam (Service Definition)
 
 ### The mental model: Context, services, fibers
 
@@ -265,22 +265,22 @@ This subsystem turns a shell command (`dsh web`, `dsh --profile headless "task"`
 
 ### Key files
 
-- ⭐ `apps/cli/src/bin.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/src/bin.ts — the `dsh` process entry; dispatches to profile/plugin/dump modes.
-- `apps/cli/src/args.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/src/args.ts — commander adapter; launcher parses only its own flags.
-- ⭐ `apps/cli/src/profile-boot.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/src/profile-boot.ts — profile resolution, patch-stack composition, shutdown wiring.
-- ⭐ `packages/boot/app-boot/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/app-boot/src/index.ts — `boot()`, `mountRootInclude()`, patch loading, fail-loud guards, hot recomposition.
-- `packages/boot/app-boot/src/profile.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/app-boot/src/profile.ts — `PROFILE_TEMPLATES`, `loadProfile`, `initProfile`, profile-dir layout.
-- `packages/boot/app-boot/src/profile-context.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/app-boot/src/profile-context.ts — `readProfilePatches()`: the exact layer-application order.
-- `packages/boot/cmdline/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/cmdline/src/index.ts — `cmdlineArgs`/`appExit` services; how apps own their flags.
-- `packages/boot/plugin-manager/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/plugin-manager/src/index.ts — (auxiliary) `dsh plugin` operations on the current profile.
-- `packages/boot/hmr/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/hmr/src/index.ts — (auxiliary) coordinates config/module reloads.
-- ⭐ `packages/bundle/base/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/base/cordis.patch.yml — the shared core layer every base-backed profile patches over.
-- `packages/bundle/headless/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/headless/cordis.patch.yml — one-shot task layer over base.
-- `packages/bundle/web-app/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/web-app/cordis.patch.yml — browser-app layer over base.
-- `packages/bundle/sdk-app/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/sdk-app/cordis.patch.yml — SDK JSON-RPC stdio layer over base.
-- `packages/bundle/sdk-minimal/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/sdk-minimal/cordis.patch.yml — standalone tree (the only profile not built on base).
-- `packages/bundle/acp-app/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/acp-app/cordis.patch.yml — automation-only ACP stdio layer over base.
-- `apps/cli/composition.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/composition.md — generated graph of the exact composition each shipped profile uses.
+- ⭐ `apps/cli/src/bin.ts` — [bin.ts](./apps/cli/src/bin.ts#L26-L74) — the `dsh` process entry; dispatches to profile/plugin/dump modes.
+- `apps/cli/src/args.ts` — [args.ts](./apps/cli/src/args.ts#L146-L216) — commander adapter; launcher parses only its own flags.
+- ⭐ `apps/cli/src/profile-boot.ts` — [profile-boot.ts](./apps/cli/src/profile-boot.ts#L194-L199) — profile resolution, patch-stack composition, shutdown wiring.
+- ⭐ `packages/boot/app-boot/src/index.ts` — [index.ts](./packages/boot/app-boot/src/index.ts) — `boot()`, `mountRootInclude()`, patch loading, fail-loud guards, hot recomposition.
+- `packages/boot/app-boot/src/profile.ts` — [profile.ts](./packages/boot/app-boot/src/profile.ts#L179-L195) — `PROFILE_TEMPLATES`, `loadProfile`, `initProfile`, profile-dir layout.
+- `packages/boot/app-boot/src/profile-context.ts` — [profile-context.ts](./packages/boot/app-boot/src/profile-context.ts#L74-L85) — `readProfilePatches()`: the exact layer-application order.
+- `packages/boot/cmdline/src/index.ts` — [index.ts](./packages/boot/cmdline/src/index.ts) — `cmdlineArgs`/`appExit` services; how apps own their flags.
+- `packages/boot/plugin-manager/src/index.ts` — [index.ts](./packages/boot/plugin-manager/src/index.ts) — (auxiliary) `dsh plugin` operations on the current profile.
+- `packages/boot/hmr/src/index.ts` — [index.ts](./packages/boot/hmr/src/index.ts) — (auxiliary) coordinates config/module reloads.
+- ⭐ `packages/bundle/base/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/base/cordis.patch.yml) — the shared core layer every base-backed profile patches over.
+- `packages/bundle/headless/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/headless/cordis.patch.yml) — one-shot task layer over base.
+- `packages/bundle/web-app/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/web-app/cordis.patch.yml) — browser-app layer over base.
+- `packages/bundle/sdk-app/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/sdk-app/cordis.patch.yml) — SDK JSON-RPC stdio layer over base.
+- `packages/bundle/sdk-minimal/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/sdk-minimal/cordis.patch.yml) — standalone tree (the only profile not built on base).
+- `packages/bundle/acp-app/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/acp-app/cordis.patch.yml) — automation-only ACP stdio layer over base.
+- `apps/cli/composition.md` — [composition.md](./apps/cli/composition.md) — generated graph of the exact composition each shipped profile uses.
 
 ### `apps/cli/src/bin.ts` — process entry and mode dispatch (CORE ⭐)
 
@@ -406,7 +406,7 @@ flowchart TD
 2. **The root `cordis.yml` is rewritten to `[]` on every boot.** Never hand-edit it; edit `cordis.patch.yml` layers instead.
 3. **Launcher flags must come first.** `dsh web --resume abc` works; `dsh --resume abc --profile web` fails — the first unrecognized token ends launcher parsing.
 4. **Activation is service-driven, not order-driven.** A missing provider surfaces as a `pending` entry with named missing services — read those names first when debugging a hung boot.
-5. **Core vs auxiliary:** core = `bin.ts`, `args.ts`, `profile-boot.ts`, `app-boot` (boot, patches, profiles), `dsh-cmdline`. Auxiliary = `plugin-manager`, `hmr`, `config-editor`, `dump-config`. Touch core to change *what boots*; auxiliary to change *how it's managed*.
+5. **Core vs auxiliary:** core = `bin.ts`, `args.ts`, `profile-boot.ts`, `app-boot` (boot, patches, profiles), `dsh-cmdline`. Auxiliary = `plugin-manager`, `hmr`, `config-editor`, `apps/cli/src/dump-config.ts` (the `--dump-config`/`--dump-config-schema` modes). Touch core to change *what boots*; auxiliary to change *how it's managed*.
 
 ---
 ### Source Code Reading Roadmap
@@ -414,32 +414,32 @@ flowchart TD
 Read the codebase in this order. Each stage builds on the previous one; the "focus" line tells you what to extract before moving on.
 
 **Stage 1 — The shape of the thing (30 min, no code execution)**
-1. `README.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/README.md — what the project claims to be
-2. `docs/architecture.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md — the official mental model; read before touching `packages/`
-3. `docs/glossary.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/glossary.md — terms like "capability seam", "surface", "profile"
-4. `apps/cli/composition.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/composition.md — the generated graph of what each profile actually mounts
+1. `README.md` — [README.md](./README.md) — what the project claims to be
+2. `docs/architecture.md` — [architecture.md](./docs/architecture.md) — the official mental model; read before touching `packages/`
+3. `docs/glossary.md` — [glossary.md](./docs/glossary.md) — terms like "capability seam", "surface", "profile"
+4. `apps/cli/composition.md` — [composition.md](./apps/cli/composition.md) — the generated graph of what each profile actually mounts
 
 *Focus: be able to draw the profile → bundles → patches → Cordis tree pipeline from memory.*
 
 **Stage 2 — The loop (the 20% of code that explains 80% of behavior)**
-5. ⭐ `packages/core/agent-loop/src/agent.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/agent.ts — `turn()` and `step()`; read slowly
-6. `packages/core/session/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/index.ts — `Session.append()`; the commit point of all durable truth
-7. ⭐ `packages/core/tools/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts — the four-stage tool pipeline
-8. `packages/core/agent/src/runtime-types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/src/runtime-types.ts — the `Agent` contract and `agent/*` events
+5. ⭐ `packages/core/agent-loop/src/agent.ts` — [agent.ts](./packages/core/agent-loop/src/agent.ts) — `turn()` and `step()`; read slowly
+6. `packages/core/session/src/index.ts` — [index.ts](./packages/core/session/src/index.ts) — `Session.append()`; the commit point of all durable truth
+7. ⭐ `packages/core/tools/src/index.ts` — [index.ts](./packages/core/tools/src/index.ts) — the tool pipeline (`tools/pre-execute` → `tools/execute` → `tools/post-execute` waterfalls)
+8. `packages/core/agent/src/runtime-types.ts` — [runtime-types.ts](./packages/core/agent/src/runtime-types.ts) — the `Agent` contract and `agent/*` events
 
 *Focus: trace one `followup()` → `turn/start` → `step/start` → `assistant/message` → `turn/end` in your head.*
 
 **Stage 3 — Voice and hands**
-9. `packages/llm/llm/src/types.ts` + `packages/llm/llm/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm/src/types.ts — `StreamChunk` protocol and the adapter seam
-10. `packages/shell/tool-bash/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/tool-bash/src/index.ts — the canonical guarded tool
-11. `packages/sandbox/sandbox/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts — the confinement seam
+9. `packages/llm/llm/src/types.ts` + `packages/llm/llm/src/index.ts` — [types.ts](./packages/llm/llm/src/types.ts) — `StreamChunk` protocol and the adapter seam
+10. `packages/shell/tool-bash/src/index.ts` — [index.ts](./packages/shell/tool-bash/src/index.ts) — the canonical guarded tool
+11. `packages/sandbox/sandbox/src/index.ts` — [index.ts](./packages/sandbox/sandbox/src/index.ts) — the confinement seam
 
 *Focus: how a tool call becomes a spawned process, and where each seam lets you swap the implementation.*
 
 **Stage 4 — Durability and remote control**
-12. `packages/sdk/client/src/client.ts` + `packages/sdk/server/src/server.ts` — the JSON-RPC bridge
-13. `packages/session/session-persistence-jsonl/src/storage.ts` — the append path
-14. `packages/bundle/sdk-minimal/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/sdk-minimal/cordis.patch.yml — the eval rig as pure data
+12. `packages/sdk/client/src/client.ts` + `packages/sdk/server/src/server.ts` — [client.ts](./packages/sdk/client/src/client.ts) + [server.ts](./packages/sdk/server/src/server.ts) — the JSON-RPC bridge
+13. `packages/session/session-persistence-jsonl/src/storage.ts` — [storage.ts](./packages/session/session-persistence-jsonl/src/storage.ts) — the append path
+14. `packages/bundle/sdk-minimal/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/sdk-minimal/cordis.patch.yml) — the eval rig as pure data
 
 *Focus: how an out-of-process caller drives the loop, and where every event lands on disk.*
 
@@ -493,7 +493,7 @@ node --version   # must satisfy the engines range in package.json
 corepack enable  # pnpm ships via corepack; or: npm i -g pnpm
 
 # 2. Clone and install (pnpm workspaces; this takes a while)
-git clone https://github.com/deepseek-ai/deepseek-harness.git
+gh repo clone objectMaker/deepseek-harness
 cd deepseek-harness
 pnpm install
 
@@ -512,7 +512,7 @@ The `dsh` script runs the **TypeScript source directly** through tsx's ESM-only 
 ```sh
 # Print the fully composed plugin tree for a profile and exit (no boot)
 pnpm dsh --profile headless --dump-config
-# Same, but only the profile's own patch (no bundles, no user layer)
+# Same, but bundle layers only (no profile patch, no home layer, no --patch overlays)
 pnpm dsh --profile headless --dump-config --dump-default-config
 # JSON Schema for profile entries and patches (what keys each row accepts)
 pnpm dsh --profile headless --dump-config-schema
@@ -564,18 +564,18 @@ This subsystem is the beating heart of the harness: `dsh-agent` defines the publ
 
 ### Key files
 
-- ⭐ `packages/core/agent-loop/src/agent.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/agent.ts — the `ReactLoopAgent` driver: turn/step machine, prompt admission, request dispatch, cancellation
-- `packages/core/agent-loop/src/tool-calls.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/tool-calls.ts — per-step tool scheduling: exclusive barriers + bounded parallel pool
-- `packages/core/agent-loop/src/inbox.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/inbox.ts — durable inbox (`next-turn` / `next-step` pending lists, claim semantics)
-- `packages/core/agent/src/runtime-types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/src/runtime-types.ts — the public `Agent` interface + full `agent/*` event declarations
-- `packages/core/agent/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/src/index.ts — `AgentRegistry`, factory slot, initiator scope
-- `packages/core/system-prompt/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts — `SystemPrompt.assemble()`: sections, variables, tool schemas, waterfall
-- ⭐ `packages/core/tools/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts — `ToolRuntime`: registry + the `tools/pre-execute → execute → post-execute → result` pipeline
-- `packages/core/tools/src/types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/types.ts — `ToolDefinition`, execution/result/guard types
-- ⭐ `packages/core/session/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/index.ts — `Session.append()`: validation, freezing, commit, fan-out
-- `packages/core/session/src/types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/types.ts — `SessionEventMap` (turn/step/tool/assistant events), `TurnEndReason`
-- `packages/core/scope/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/scope/src/index.ts — `createScope`, scope-targeted event routing
-- `docs/subsystems/core.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/core.md — generated loop map + service API reference
+- ⭐ `packages/core/agent-loop/src/agent.ts` — [agent.ts](./packages/core/agent-loop/src/agent.ts) — the `ReactLoopAgent` driver: turn/step machine, prompt admission, request dispatch, cancellation
+- `packages/core/agent-loop/src/tool-calls.ts` — [tool-calls.ts](./packages/core/agent-loop/src/tool-calls.ts) — per-step tool scheduling: exclusive barriers + bounded parallel pool
+- `packages/core/agent-loop/src/inbox.ts` — [inbox.ts](./packages/core/agent-loop/src/inbox.ts) — durable inbox (`next-turn` / `next-step` pending lists, claim semantics)
+- `packages/core/agent/src/runtime-types.ts` — [runtime-types.ts](./packages/core/agent/src/runtime-types.ts#L183-L241) — the public `Agent` interface + full `agent/*` event declarations
+- `packages/core/agent/src/index.ts` — [index.ts](./packages/core/agent/src/index.ts) — `AgentRegistry`, factory slot, initiator scope
+- `packages/core/system-prompt/src/index.ts` — [index.ts](./packages/core/system-prompt/src/index.ts#L614-L685) — `SystemPrompt.assemble()`: sections, variables, tool schemas, waterfall
+- ⭐ `packages/core/tools/src/index.ts` — [index.ts](./packages/core/tools/src/index.ts) — `ToolRuntime`: registry + the `tools/pre-execute → execute → post-execute → result` pipeline
+- `packages/core/tools/src/types.ts` — [types.ts](./packages/core/tools/src/types.ts) — `ToolDefinition`, execution/result/guard types
+- ⭐ `packages/core/session/src/index.ts` — [index.ts](./packages/core/session/src/index.ts#L798-L825) — `Session.append()`: validation, freezing, commit, fan-out
+- `packages/core/session/src/types.ts` — [types.ts](./packages/core/session/src/types.ts) — `SessionEventMap` (turn/step/tool/assistant events), `TurnEndReason`
+- `packages/core/scope/src/index.ts` — [index.ts](./packages/core/scope/src/index.ts) — `createScope`, scope-targeted event routing
+- `docs/subsystems/core.md` — [core.md](./docs/subsystems/core.md) — generated loop map + service API reference
 
 ### 2.1 The `Agent` contract — `packages/core/agent/src/runtime-types.ts` (core)
 
@@ -618,6 +618,10 @@ private async turn(): Promise<boolean> {
       //     unanswered calls so later requests replay paired history
       this.session.append('step/end', { turn, step })
       signal.throwIfAborted()
+      if (turnEnds && this.inbox.nextStep.length === 0) {
+        await this.dispatch.serial('agent/turn-stopping', { turn, signal })  // listeners may steer to keep the turn open
+        signal.throwIfAborted()
+      }
       if (turnEnds && this.inbox.nextStep.length === 0) break  // turn ends only when model stops AND inbox drains
       target = 'next-step'                // later steps in the same turn take step-scoped input only
     }
@@ -715,13 +719,13 @@ Every cancellation in the harness is one `AbortSignal` flowing downhill: `Agent.
 
 ### Key files
 
-- ⭐ `packages/core/agent/src/runtime-types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/src/runtime-types.ts — `Agent.cancel(cause, options)`: the public entry; first cause wins, no-op when idle
-- ⭐ `packages/core/agent-loop/src/agent.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/agent.ts — the phase-owned `AbortController`; `throwIfAborted()` at every boundary; mid-stream `interrupted: true` commit
-- `packages/core/agent-loop/src/tool-calls.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent-loop/src/tool-calls.ts — synthetic `ABORTED_BEFORE_DISPATCH` results for undispatched calls
-- ⭐ `packages/core/tools/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts — abort-before-dispatch vs abort-after-dispatch; caller/wrapper signal fusion; the tool-author cancellation contract
-- `packages/shell/bash-local/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/bash-local/src/index.ts — fuses `exec.signal` with the command timeout into one spawn signal
-- `packages/subprocess/subprocess-local/src/spawn.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subprocess/subprocess-local/src/spawn.ts — abort → `SIGTERM` → `graceMs` → `SIGKILL`
-- `packages/core/session/src/repair.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/session/src/repair.ts — `ToolCallRecovery`: synthetic closers for interrupted/crashed logs
+- ⭐ `packages/core/agent/src/runtime-types.ts` — [runtime-types.ts](./packages/core/agent/src/runtime-types.ts) — `Agent.cancel(cause, options)`: the public entry; first cause wins, no-op when idle
+- ⭐ `packages/core/agent-loop/src/agent.ts` — [agent.ts](./packages/core/agent-loop/src/agent.ts#L175-L181) — the phase-owned `AbortController`; `throwIfAborted()` at every boundary; mid-stream `interrupted: true` commit
+- `packages/core/agent-loop/src/tool-calls.ts` — [tool-calls.ts](./packages/core/agent-loop/src/tool-calls.ts#L60-L101) — synthetic `ABORTED_BEFORE_DISPATCH` results for undispatched calls
+- ⭐ `packages/core/tools/src/index.ts` — [index.ts](./packages/core/tools/src/index.ts) — abort-before-dispatch vs abort-after-dispatch; caller/wrapper signal fusion; the tool-author cancellation contract
+- `packages/shell/bash-local/src/index.ts` — [index.ts](./packages/shell/bash-local/src/index.ts) — fuses `exec.signal` with the command timeout into one spawn signal
+- `packages/subprocess/subprocess-local/src/spawn.ts` — [spawn.ts](./packages/subprocess/subprocess-local/src/spawn.ts#L357-L369) — abort → `SIGTERM` → `graceMs` → `SIGKILL`
+- `packages/core/session/src/repair.ts` — [repair.ts](./packages/core/session/src/repair.ts#L105-L205) — `ToolCallRecovery`: synthetic closers for interrupted/crashed logs
 
 ### The entry: `Agent.cancel()` (core ⭐)
 
@@ -733,7 +737,7 @@ cancel(cause: AgentCancelCause, options?: CancelOptions): void
 // With no active activity, cancellation is a no-op and does not arm later work.
 ```
 
-The driver's implementation (`packages/core/agent-loop/src/agent.ts`) is three lines:
+The driver's implementation (`packages/core/agent-loop/src/agent.ts`) is three statements:
 
 ```ts
 cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
@@ -927,7 +931,7 @@ flowchart TB
 
 ### 2.6 Waterfall Extension System Deep Dive
 
-If the Cordis plugin tree is the harness's skeleton, waterfalls are its nervous system. Every behavioral interception point in the agent core is a **waterfall event**: `ctx.waterfall` dispatches listeners in registration order as around-middleware — each listener receives `(...args, next)`, calls `next()` to delegate (optionally wrapping the result), or returns without `next()` to short-circuit the chain ([docs/cordis-primer.md](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cordis-primer.md)). The loop, the tool pipeline, prompt assembly, and model streaming are all built this way, which is why the repo rule is *"plugins, not loop changes"*: you extend behavior by registering listeners, never by editing `agent-loop`.
+If the Cordis plugin tree is the harness's skeleton, waterfalls are its nervous system. Every behavioral interception point in the agent core is a **waterfall event**: `ctx.waterfall` dispatches listeners in registration order as around-middleware — each listener receives `(...args, next)`, calls `next()` to delegate (optionally wrapping the result), or returns without `next()` to short-circuit the chain ([cordis-primer.md](./docs/cordis-primer.md)). The loop, the tool pipeline, prompt assembly, and model streaming are all built this way, which is why the repo rule is *"plugins, not loop changes"*: you extend behavior by registering listeners, never by editing `agent-loop`.
 
 ### Registration and ordering
 
@@ -953,7 +957,7 @@ ctx.on('agent/pre-step', (payload, next) => { /* ... */ return next() })
 ctx.on('agent/pre-step', async (payload, next) => { /* ... */ }, { prepend: true })
 ```
 
-Cooperative listeners mutate a shared decision object (or the `exec`) and delegate; a listener may also replace the result entirely — downstream listeners then see only the replaced value. For single-decision events (policy gates), **short-circuiting is the design**: a policy listener returns without `next()` when it owns the decision, while a listener that only annotates or observes must delegate.
+Cooperative listeners mutate the `exec` (or the args they pass down) and delegate; a listener may also transform the delegated result — the replacement propagates back to the waterfall's caller, not to downstream listeners, which already ran with the original args (this is how `session-reference` post-processes `next()` into the loop's decision). For single-decision events (policy gates), **short-circuiting is the design**: a policy listener returns without `next()` when it owns the decision, while a listener that only annotates or observes must delegate.
 
 ### Short-circuit logic: where it is load-bearing
 
@@ -983,7 +987,7 @@ Returning without calling `next()` terminates the chain: downstream listeners ne
 | `system-prompt/assemble` | `(assembly, context)` | `PromptAssembly` | Transform the final prompt + tool schemas as one unit, after scope layers merge. |
 | `llm/stream` | `options: GenerateOptions` | `AsyncIterable<StreamChunk>` | Observe/rewrite chunks around every streaming model call; yield your own chunks to short-circuit the adapter. Loop-built requests arrive deep-frozen — read, never rewrite. |
 
-Declarations: `agent/*` in [packages/core/agent/src/runtime-types.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/agent/src/runtime-types.ts); `tools/*` in ⭐ [packages/core/tools/src/index.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts); `system-prompt/assemble` in [packages/core/system-prompt/src/index.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/system-prompt/src/index.ts); `llm/stream` in [packages/llm/llm/src/index.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm/src/index.ts).
+Declarations: `agent/*` in [runtime-types.ts](./packages/core/agent/src/runtime-types.ts); `tools/*` in ⭐ [index.ts](./packages/core/tools/src/index.ts); `system-prompt/assemble` in [index.ts](./packages/core/system-prompt/src/index.ts); `llm/stream` in [index.ts](./packages/llm/llm/src/index.ts).
 
 All `agent/*` and `tools/*` waterfalls are **scope-filtered**: a listener registered on `agent.ctx` receives only that agent's events; on the plain context it receives every agent's. And note the signature asymmetry: `agent/*` listeners take `(payload, next)` with a payload object, while `tools/*` and `system-prompt/assemble` take their subjects positionally (`(exec, next)`, `(assembly, context, next)`).
 
@@ -1039,7 +1043,9 @@ export const StepBudgetGate: Plugin.Object<void> = {
         // SHORT-CIRCUIT: return the decision WITHOUT calling next().
         // Downstream listeners never run; the loop sees { kind: 'reject' }
         // and closes the turn with turn/end{kind:'blocked'}. The claimed
-        // inbox message is neither discarded nor logged as user/message.
+        // batch is consumed by the claim (removed from pending, never
+        // re-queued) but never admitted as user/message — a reject
+        // silently swallows it.
         return Promise.resolve({ kind: 'reject' } as const)
       }
       return next()                      // delegate: downstream listeners + the default 'enter' still run
@@ -1052,7 +1058,7 @@ export const StepBudgetGate: Plugin.Object<void> = {
 
 ### Practical example 2: `tools/pre-execute` deny guard
 
-A complete plugin that blocks `bash` commands matching a dangerous pattern — the decision shape is `PreToolDecision` from [packages/core/tools/src/index.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts):
+A complete plugin that blocks `bash` commands matching a dangerous pattern — the decision shape is `PreToolDecision` from [index.ts](./packages/core/tools/src/index.ts#L608):
 
 ```ts
 import type { Context, Plugin } from '@deepseek-ai/cordis'
@@ -1195,10 +1201,7 @@ sequenceDiagram
 
 - [ ] Trace one `followup()` call end-to-end: inbox splice → `turn/start` → `step/start` → `assistant/message` → `turn/end` in a real session log
 - [ ] Explain the difference between `steer()` and `inject()` — when does each one's message reach the model?
-- [ ] Write an `agent/pre-step` waterfall listener that rejects a step under a custom condition; observe the `blocked` turn ending
 - [ ] Register a tool with `defineTool`, call it from a step, and follow its `tool/call` → `tool/result` pair in the log
-- [ ] Add a `tools/pre-execute` listener that denies a call; verify the denial surfaces as an `isError` result and the turn continues
-- [ ] Cancel a mid-stream turn and confirm the committed `assistant/message` carries `interrupted: true` with the delivered prefix
 - [ ] Assemble a prompt with an agent-scoped section shadowing a global one; verify via the logged `system/message`
 
 ---
@@ -1208,18 +1211,18 @@ This subsystem is the harness's "voice and hands." `ctx.llm` streams model calls
 
 ### Key files
 
-- ⭐ `packages/llm/llm/src/types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm/src/types.ts — the canonical message/block/chunk vocabulary every adapter, the loop, and the session log share
-- ⭐ `packages/llm/llm/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm/src/index.ts — `LlmRuntime` (`ctx.llm`): the adapter registry plus the interceptable streaming API
-- `packages/llm/llm-deepseek/src/adapter.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm-deepseek/src/adapter.ts — concrete adapter: the template to copy for a new provider
-- ⭐ `packages/shell/shell/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/shell/src/index.ts — `ShellExecutor` (`ctx.shell`): the Service Definition half of the execution seam
-- `packages/shell/shell/src/types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/shell/src/types.ts — request/spec/result vocabulary
-- ⭐ `packages/shell/tool-bash/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/tool-bash/src/index.ts — the model-facing `bash` tool: the guarded execution pipeline every tool should imitate
-- ⭐ `packages/sandbox/sandbox/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts — `SandboxProvider` (`ctx.sandbox`): the confinement seam (modes: `read-only` | `workspace-write` | `danger-full-access`)
-- `packages/subprocess/subprocess/src/types.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subprocess/subprocess/src/types.ts — the lowest spawn vocabulary; every bash command goes through `ctx.subprocess`
-- `packages/mcp/mcp-client/src/tools.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/src/tools.ts — bridges external MCP servers into `ctx.tools`
-- `packages/skill/skill/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill/src/index.ts — `SkillRegistry` (`ctx.skills`)
-- `packages/skill/tool-skill/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/tool-skill/src/index.ts — the model-facing `skill` loader tool
-- ⭐ `packages/ssh/sandbox-ssh/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/ssh/sandbox-ssh/src/index.ts — the remote-execution proof: same `SandboxProvider` seam, confinement resolved on the remote host
+- ⭐ `packages/llm/llm/src/types.ts` — [types.ts](./packages/llm/llm/src/types.ts) — the canonical message/block/chunk vocabulary every adapter, the loop, and the session log share
+- ⭐ `packages/llm/llm/src/index.ts` — [index.ts](./packages/llm/llm/src/index.ts) — `LlmRuntime` (`ctx.llm`): the adapter registry plus the interceptable streaming API
+- `packages/llm/llm-deepseek/src/adapter.ts` — [adapter.ts](./packages/llm/llm-deepseek/src/adapter.ts) — concrete adapter: the template to copy for a new provider
+- ⭐ `packages/shell/shell/src/index.ts` — [index.ts](./packages/shell/shell/src/index.ts) — `ShellExecutor` (`ctx.shell`): the Service Definition half of the execution seam
+- `packages/shell/shell/src/types.ts` — [types.ts](./packages/shell/shell/src/types.ts) — request/spec/result vocabulary
+- ⭐ `packages/shell/tool-bash/src/index.ts` — [index.ts](./packages/shell/tool-bash/src/index.ts) — the model-facing `bash` tool: the guarded execution pipeline every tool should imitate
+- ⭐ `packages/sandbox/sandbox/src/index.ts` — [index.ts](./packages/sandbox/sandbox/src/index.ts#L177) — `SandboxProvider` (`ctx.sandbox`): the confinement seam (modes: `read-only` | `workspace-write` | `danger-full-access`)
+- `packages/subprocess/subprocess/src/types.ts` — [types.ts](./packages/subprocess/subprocess/src/types.ts) — the lowest spawn vocabulary; every bash command goes through `ctx.subprocess`
+- `packages/mcp/mcp-client/src/tools.ts` — [tools.ts](./packages/mcp/mcp-client/src/tools.ts) — bridges external MCP servers into `ctx.tools`
+- `packages/skill/skill/src/index.ts` — [index.ts](./packages/skill/skill/src/index.ts) — `SkillRegistry` (`ctx.skills`)
+- `packages/skill/tool-skill/src/index.ts` — [index.ts](./packages/skill/tool-skill/src/index.ts) — the model-facing `skill` loader tool
+- ⭐ `packages/ssh/sandbox-ssh/src/index.ts` — [index.ts](./packages/ssh/sandbox-ssh/src/index.ts#L12-L30) — the remote-execution proof: same `SandboxProvider` seam, confinement resolved on the remote host
 
 ### `packages/llm/llm/src/types.ts` — the streaming vocabulary (core)
 
@@ -1327,8 +1330,12 @@ export class SshSandboxProvider extends SandboxProvider {
   override async confine(argv, policy, signal?): Promise<ConfinedArgv> {
     // Instead of wrapping argv locally (bwrap/Landlock/Seatbelt), ask the
     // REMOTE host to confine it: execution moves with the provider swap.
-    const confined = await this.ctx.ssh.request('sandbox', { argv, policy }, factsSchema, signal)
-    return { ...confined, runnerFailureRules: confined.runnerFailureRules.map(...) }
+    try {
+      const confined = await this.ctx.ssh.request('sandbox', { argv, policy }, factsSchema, signal)
+      return { ...confined, runnerFailureRules: confined.runnerFailureRules.map(...) }
+    } catch (error) {
+      throw new SandboxUnavailableError(policy.mode, error instanceof Error ? error.message : String(error))
+    }
   }
 }
 // Design payoff: tool-bash -> ctx.shell -> ctx.sandbox -> ctx.subprocess is
@@ -1342,17 +1349,17 @@ This subsection goes inside Chapter 3, right after the `sandbox-ssh` seam-swap s
 
 Key files:
 
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/index.ts — `SandboxMode`, `SandboxPolicy`, `SandboxProvider`, `SandboxUnavailableError`, `ConfinedArgv` (the seam definition)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/roots.ts — `writableRoots()`: the one shared definition of what `workspace-write` means
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/escalation.ts — `WIDER_MODES` ladder, `approveEscalation()`, model-facing denial markers
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox/src/diagnostics.ts — `classifyRunnerFailure`, `isRunnerSpawnFailure`, `matchesSignature`: runner failure vs denial vs tool failure
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox-local/src/index.ts — `LocalSandboxProvider.confine()`: platform runner chain, probes, argv wrapping
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox-local/src/profiles.ts — per-backend profile builders (`bwrapProfileArgs`, `landlockProfileArgs`, `seatbeltProfileArgs`)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sandbox/sandbox-policy/src/index.ts — `SandboxPolicyService.resolve()`: per-call policy resolution
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/bash-sandbox/src/index.ts — `SandboxBashExecutor`: confine → spawn → classify denials/runner failures
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/tool-bash/src/index.ts — per-call policy plumbing + one-time escalation (`validateBashArgs`, `approveBashEscalation`)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/ssh/sandbox-ssh/src/index.ts — `SshSandboxProvider`: confinement resolved on the remote host
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/index.ts — `ToolGuard` type, `tools.guard()` registration, monotonic guard evaluation
+- ⭐ [index.ts](./packages/sandbox/sandbox/src/index.ts) — `SandboxMode`, `SandboxPolicy`, `SandboxProvider`, `SandboxUnavailableError`, `ConfinedArgv` (the seam definition)
+- [roots.ts](./packages/sandbox/sandbox/src/roots.ts) — `writableRoots()`: the one shared definition of what `workspace-write` means
+- [escalation.ts](./packages/sandbox/sandbox/src/escalation.ts) — `WIDER_MODES` ladder, `approveEscalation()`, model-facing denial markers
+- [diagnostics.ts](./packages/sandbox/sandbox/src/diagnostics.ts) — `classifyRunnerFailure`, `isRunnerSpawnFailure`, `matchesSignature`: runner failure vs denial vs tool failure
+- ⭐ [index.ts](./packages/sandbox/sandbox-local/src/index.ts) — `LocalSandboxProvider.confine()`: platform runner chain, probes, argv wrapping
+- [profiles.ts](./packages/sandbox/sandbox-local/src/profiles.ts) — per-backend profile builders (`bwrapProfileArgs`, `landlockProfileArgs`, `seatbeltProfileArgs`)
+- [index.ts](./packages/sandbox/sandbox-policy/src/index.ts) — `SandboxPolicyService.resolve()`: per-call policy resolution
+- [index.ts](./packages/shell/bash-sandbox/src/index.ts) — `SandboxBashExecutor`: confine → spawn → classify denials/runner failures
+- [index.ts](./packages/shell/tool-bash/src/index.ts) — per-call policy plumbing + one-time escalation (`validateBashArgs`, `approveBashEscalation`)
+- [index.ts](./packages/ssh/sandbox-ssh/src/index.ts) — `SshSandboxProvider`: confinement resolved on the remote host
+- [index.ts](./packages/core/tools/src/index.ts) — `ToolGuard` type, `tools.guard()` registration, monotonic guard evaluation
 
 #### Policy levels: the exact vocabulary (core)
 
@@ -1558,8 +1565,12 @@ export class SshSandboxProvider extends SandboxProvider {
     // Ask the REMOTE host to confine it: the remote side runs its own
     // provider selection and returns wrapped argv + enforcement facts,
     // validated against factsSchema before use.
-    const confined = await this.ctx.ssh.request('sandbox', { argv, policy }, factsSchema, signal)
-    return { ...confined, runnerFailureRules: confined.runnerFailureRules.map(...) }
+    try {
+      const confined = await this.ctx.ssh.request('sandbox', { argv, policy }, factsSchema, signal)
+      return { ...confined, runnerFailureRules: confined.runnerFailureRules.map(...) }
+    } catch (error) {
+      throw new SandboxUnavailableError(policy.mode, error instanceof Error ? error.message : String(error))
+    }
   }
 }
 ```
@@ -1642,10 +1653,10 @@ flowchart TD
 
 ### Learning milestones
 
-- [ ] Print the resolved `SandboxPolicy` for a live session (`ctx.sandboxPolicy.resolve({ session })`) and explain each field's origin: which came from config, which from the session log, which from an approval
+- [ ] Print the resolved `SandboxExecutionPolicy` for a live session (`ctx.sandboxPolicy.resolve({ session })`) and explain each field's origin: which came from config, which from the session log, which from an approval
 - [ ] Run `bwrap --ro-bind / / --dev /dev -- 'touch /etc/x'` by hand and match the stderr against the bwrap denial signature (`read-only file system`)
 - [ ] Trigger a real sandbox denial via the `bash` tool under `read-only`, then retry once with `sandbox_permissions: "workspace-write"` + `justification` and observe the approval prompt
-- [ ] Break the runner deliberately (e.g. point `runnerCommand` at a nonexistent binary) and confirm `confine()` throws `SandboxUnavailableError` instead of running the command
+- [ ] Break the runner deliberately (e.g. point `runnerCommand` at a nonexistent binary) and confirm the call fails with `SandboxUnavailableError` instead of running the command — note the throw comes from the spawn-failure gate in `SandboxBashExecutor.execute()`, not from `confine()` (the operator-asserted `runnerCommand` branch wraps without probing)
 - [ ] Register a `ToolGuard` via `tools.guard()` that denies any `bash` call containing `rm -rf`; verify the denial surfaces as an `isError` result and the turn continues
 - [ ] Write a second guard and prove monotonicity: the first guard's denial cannot be re-allowed by the second guard or any `tools/pre-execute` listener
 - [ ] Compare `enforcement: 'full'` vs `'partial'` on two platforms (or via the `internals` test hooks) and explain which file effects `partial` leaves ungoverned
@@ -1697,7 +1708,7 @@ flowchart LR
 - [ ] Execute a command via `ctx.shell.resolve()` → `ctx.shell.execute()` → `result()`; interpret `timedOut` vs `aborted`
 - [ ] Run a command under sandbox `read-only` mode and observe a denial surface as facts, not a crash
 - [ ] Swap `sandbox-local` for `sandbox-ssh` and verify execution moves to the remote host with no consumer changes
-- [ ] Configure an MCP server; watch its tools appear as `server__tool` entries and call one through the bridge
+- [ ] Configure an MCP server; watch its tools appear as `mcp__<server>__<tool>` entries and call one through the bridge
 - [ ] Write a `SKILL.md`, expose it via a skill provider, and load it through the `skill` tool
 
 ---
@@ -1707,14 +1718,14 @@ This chapter turns the theory from Chapters 1–3 into a working artifact: you w
 
 ### Key files
 
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/adding-a-tool.md — the official minimal tool shape; this tutorial is its worked companion
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/core/tools/src/schema.ts — `defineTool()` signature and `DefineToolOptions`
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/tool-skill/src/index.ts — minimal real-world `defineTool` + `ctx.tools.register` example
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/shell/tool-bash/src/index.ts — production `apply(ctx)` shape: `name` / `inject` / `Config` / `apply`
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/headless/cordis.patch.yml — patch row format (`id:` / `name:` / `config:` / `disabled:` / `- insert:`)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/src/args.ts — the `--patch` launcher flag (repeatable, launcher flags come first)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/app-boot/src/profile-context.ts — overlay layer order (`--patch` applies after bundles and the profile layer)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/cookbook/adding-a-package.md — full package invariants for a shippable package
+- ⭐ [adding-a-tool.md](./docs/cookbook/adding-a-tool.md#L7-L36) — the official minimal tool shape; this tutorial is its worked companion
+- [schema.ts](./packages/core/tools/src/schema.ts#L483-L556) — `defineTool()` signature and `DefineToolOptions`
+- [index.ts](./packages/skill/tool-skill/src/index.ts#L82-L90) — minimal real-world `defineTool` + `ctx.tools.register` example
+- [index.ts](./packages/shell/tool-bash/src/index.ts#L33-L34) — production `apply(ctx)` shape: `name` / `inject` / `Config` / `apply`
+- [cordis.patch.yml](./packages/bundle/headless/cordis.patch.yml#L19-L29) — patch row format (`id:` / `name:` / `config:` / `disabled:` / `- insert:`)
+- [args.ts](./apps/cli/src/args.ts#L168-L173) — the `--patch` launcher flag (repeatable, launcher flags come first)
+- [profile-context.ts](./packages/boot/app-boot/src/profile-context.ts#L73-L84) — overlay layer order (`--patch` applies after bundles and the profile layer)
+- [adding-a-package.md](./docs/cookbook/adding-a-package.md) — full package invariants for a shippable package
 
 ### Step 0 — Prerequisites
 
@@ -1724,17 +1735,18 @@ One-time repo setup (from the repo's own `AGENTS.md` commands):
 pnpm install            # link workspace packages, including the one you are about to create
 pnpm run build:artifacts  # emit every package's lib/ once; your new package iterates without a build (Step 4 explains how)
 export DEEPSEEK_API_KEY=...  # headless runs need a real model key
+command -v zstd >/dev/null || sudo apt install -y zstd  # Steps 6–7 decompress logs with the zstd CLI
 ```
 
 ### Step 1 — Scaffold the package
 
-Workspace layout is `packages/<group>/<pkg>/` and the package name is `@deepseek-ai/dsh-<name>`:
+Workspace layout is `packages/<group>/<pkg>/` and the package name is `@deepseek-ai/dsh-<name>`. (`tool/` is a new group — allowed, but per `docs/cookbook/adding-a-package.md` a new group also needs a `"@deepseek-ai/dsh-tool-echo": ["./packages/tool/tool-echo/src"]` entry in `tsconfig.base.json`'s `paths`, or the source plane (typecheck, IDE, static gates) won't resolve the new package. Runtime iteration via tsx works without it.):
 
 ```bash
 mkdir -p packages/tool/tool-echo/src
 ```
 
-`packages/tool/tool-echo/package.json` — the fields the workspace gates enforce (`private`, root-matching `version`, `type: module`, `@deepseek-ai/cordis` in both peer and dev dependencies):
+`packages/tool/tool-echo/package.json` — the fields the workspace gates enforce (root-matching `version`, `type: module`, `@deepseek-ai/cordis` in both peer and dev dependencies), plus `"private": true` so a tutorial package can never be published by accident:
 
 ```json
 {
@@ -1776,10 +1788,11 @@ export const name = 'tool-echo'   // the plugin's id in the Cordis tree
 export const inject = ['tools']   // declare the dependency: ctx.tools is only valid with this listed
 
 export function apply(ctx: Context): void {
-  // Registrations are effects: register() returns a disposer, and ctx.effect
-  // wires it to this plugin's fiber — disposing the fiber (HMR, recomposition)
-  // unregisters the tool automatically.
-  ctx.effect(() => ctx.tools.register(defineTool({
+  // Registration is effect-based: register() wires the insertion to this
+  // plugin's fiber itself and returns a disposer — disposing the fiber
+  // (HMR, recomposition) unregisters the tool automatically. No ctx.effect
+  // wrapper needed (this matches docs/cookbook/adding-a-tool.md).
+  ctx.tools.register(defineTool({
     name: 'echo',                                     // model-visible tool name; must be unique in the composition
     description: 'Echo the input text back, optionally in uppercase.',  // written from the MODEL's perspective
     parameters: {                                     // per-property spec → compiled to an implicit open object root
@@ -1804,7 +1817,7 @@ export function apply(ctx: Context): void {
       // replay, so no I/O, no clock, no session reads — args only.
       return { card: 'generic', title: 'Echo text', kind: 'read', rawInput: args.text }
     },
-  })))
+  }))
 }
 ```
 
@@ -1816,18 +1829,19 @@ pnpm install   # picks up packages/tool/tool-echo and symlinks @deepseek-ai/dsh-
 
 ### Step 4 — Write the `--patch` overlay
 
-`echo-overlay.yml` (keep it next to the repo, not inside it — overlays are personal composition, not shipped config):
+`echo-overlay.yml` in the repo root (untracked — overlays are personal composition, not shipped config; `--patch` paths resolve relative to the directory you run `pnpm dsh` from):
 
 ```yaml
-# Appends the echo plugin to ANY profile's composition. --patch layers apply
+# Appends the echo plugin to any profile that mounts the tools service. --patch layers apply
 # after bundles and the profile's own cordis.patch.yml (see profile-context.ts),
 # so this row only adds; it never edits shipped rows.
 - insert:
     - id: tool-echo
       # Subpath export: `pnpm dsh` runs through tsx, which transpiles ./src/*.ts
-      # on the fly — no package build needed while iterating. Every package.json
-      # in this repo publishes "./src/*" for exactly this. For a shippable
-      # package, build it and use the bare package name instead (adding-a-package.md).
+      # on the fly — no package build needed while iterating. Most tool
+      # packages publish "./src/*" for exactly this (and your Step-1 template
+      # includes it). For a shippable package, build it and use the bare
+      # package name instead (adding-a-package.md).
       name: '@deepseek-ai/dsh-tool-echo/src/index.ts'
 ```
 
@@ -1843,7 +1857,7 @@ pnpm dsh --profile headless --patch ./echo-overlay.yml --dump-config | grep -A2 
 
 ### Step 5 — Run it
 
-Launcher flags come first; everything after the profile name reaches the app. Isolate the run's home so you can find its session log afterward:
+Launcher flags come first and end at the first token the launcher doesn't recognize — everything from there on reaches the app verbatim. So `--patch` (and `--profile`) must precede the task string; anything after the task string is app input, not launcher flags. Isolate the run's home so you can find its session log afterward:
 
 ```bash
 export DSH_HOME=/tmp/dsh-echo-test   # sessions land in $DSH_HOME/sessions, not ~/.dsh
@@ -1869,7 +1883,7 @@ zstd -d -c "$LOG" | grep '"type":"tool/call"' | grep -o '"name":"echo"[^}]*' | h
 zstd -d -c "$LOG" | grep '"type":"tool/result"' | grep -o '"isError":[a-z]*' | head -n 2
 ```
 
-A `tool/call` event carries the exact dispatched `name` and JSON-normalized `arguments`; its paired `tool/result` carries the rendered `content` blocks and `isError`. Finding both, in order, is the durable proof your tool executed through the real pipeline — not a mock.
+A `tool/call` event carries the exact dispatched `name` and JSON-normalized `arguments` (a JSON string, unparsed); its paired `tool/result` carries them nested under `data.message`, which holds the rendered `content` blocks, `isError`, and `toolCallId` pairing it to the call's `callId`. Finding both, in order, is the durable proof your tool executed through the real pipeline — not a mock.
 
 ### Step 7 — Confirm the schema reached the model
 
@@ -1878,7 +1892,7 @@ Tool schemas join prompt assembly (`system-prompt/assemble`), and the assembled 
 ```bash
 # The echo schema inside the committed system prompt:
 zstd -d -c "$LOG" | grep -o '"type":"system/message".\{0,80\}' | head -n 1
-zstd -d -c "$LOG" | grep -o 'echo the input text back[^"]*' | head -n 1
+zstd -d -c "$LOG" | grep -o 'Echo the input text back[^"]*' | head -n 1
 ```
 
 If the description text from your `defineTool` appears in the log's system prompt, the schema round-tripped: definition → registry → prompt assembly → session log → model request.
@@ -1901,7 +1915,7 @@ If the description text from your `defineTool` appears in the log's system promp
 4. **Throwing in `execute` is a result, not a crash.** The pipeline converts throws (and schema-invalid returns) into structured `isError` results and the turn continues. Design tools to fail as results the model can react to.
 5. **Presenters must be pure.** `presentCall`/`presentResult` run on live streaming **and** on session-log replay — no I/O, no clock, no session reads, or replay breaks.
 6. **Keep iteration overlays out of the repo.** `--patch` files are personal composition. Committing one into a profile's directory confuses "what ships" with "what I'm trying".
-7. **The `src/` subpath is a dev shortcut, not the shipping form.** It works because `pnpm dsh` runs under tsx and every package.json publishes `"./src/*"`. A real package gets built (`lib/index.js`) and referenced by bare name — follow `adding-a-package.md` when you graduate.
+7. **The `src/` subpath is a dev shortcut, not the shipping form.** It works because `pnpm dsh` runs under tsx and your Step-1 `package.json` publishes `"./src/*"` (most tool packages do too). A real package gets built (`lib/index.js`) and referenced by bare name — follow `adding-a-package.md` when you graduate.
 
 ---
 
@@ -1912,18 +1926,18 @@ If the description text from your `defineTool` appears in the log's system promp
 
 **Key files** (core logic vs auxiliary marked; ⭐ = critical entry point):
 
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/client/src/launch.ts — resolves the `dsh` executable + argv (`--profile sdk --patch …`). Core.
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/client/src/client.ts — `HarnessClient`: spawns the child, handshake, requests, subscriptions, teardown ladder. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/client/src/api.ts — `DeepSeekHarness`/`HarnessSession`: receipt-to-idle `run()` flow, `finalResponse` derivation. Core.
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/protocol/src/transport.ts — newline-delimited JSON-RPC 2.0 framing over stdio. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/protocol/src/types.ts — typed request/notification maps shared by both SDKs. Core.
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/sdk/server/src/server.ts — server plugin: method dispatch, session ownership, event fan-out. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-persistence-jsonl/src/format.ts — on-disk layout, generation filenames, header line. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-persistence-jsonl/src/generation.ts — immutable generation publication + migration. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-persistence-jsonl/src/storage.ts — `JsonlSessionHandle`: read/append/flush/close. Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session/session-persistence/src/storage-contract.ts — backend-neutral validation (version gate, contiguity). Core.
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session-query/session-query/src/cold-read.ts — one-shot cold log read with interrupted-turn repair. Auxiliary (read path).
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk/src/deepseek_harness/client.py — Python SDK: bundled-runtime launch, explicit `dsh_home`. Core.
+- ⭐ [launch.ts](./packages/sdk/client/src/launch.ts#L128-L156) — resolves the `dsh` executable + argv (`--profile sdk --patch …`). Core.
+- ⭐ [client.ts](./packages/sdk/client/src/client.ts#L211-L269) — `HarnessClient`: spawns the child, handshake, requests, subscriptions, teardown ladder. Core.
+- [api.ts](./packages/sdk/client/src/api.ts#L207-L253) — `DeepSeekHarness`/`HarnessSession`: receipt-to-idle `run()` flow, `finalResponse` derivation. Core.
+- ⭐ [transport.ts](./packages/sdk/protocol/src/transport.ts#L201-L224) — newline-delimited JSON-RPC 2.0 framing over stdio. Core.
+- [types.ts](./packages/sdk/protocol/src/types.ts#L137-L152) — typed request/notification maps shared by both SDKs. Core.
+- ⭐ [server.ts](./packages/sdk/server/src/server.ts#L343-L377) — server plugin: method dispatch, session ownership, event fan-out. Core.
+- [format.ts](./packages/session/session-persistence-jsonl/src/format.ts#L58-L60) — on-disk layout, generation filenames, header line. Core.
+- [generation.ts](./packages/session/session-persistence-jsonl/src/generation.ts) — immutable generation publication + migration. Core.
+- [storage.ts](./packages/session/session-persistence-jsonl/src/storage.ts#L187-L195) — `JsonlSessionHandle`: read/append/flush/close. Core.
+- [storage-contract.ts](./packages/session/session-persistence/src/storage-contract.ts#L145-L151) — backend-neutral validation (version gate, contiguity). Core.
+- [cold-read.ts](./packages/session-query/session-query/src/cold-read.ts#L31-L57) — one-shot cold log read with interrupted-turn repair. Auxiliary (read path).
+- [client.py](./python/sdk/src/deepseek_harness/client.py#L484-L511) — Python SDK: bundled-runtime launch, explicit `dsh_home`. Core.
 
 ### SDK launch: resolving the `dsh` subprocess
 
@@ -1942,6 +1956,7 @@ export function resolveDshLaunch(
     ...dshLaunch.patches,                              // internal patches go *below* caller patches
     ...(options.patches ?? []).map(path => resolve(callerCwd, path)),
   ]
+  const dshHome = options.dshHome === undefined ? undefined : resolve(callerCwd, options.dshHome)
   return {
     command: process.execPath,                          // the child is always Node; dsh entry rides in argv
     args: [...dshLaunch.nodeArgs, '--profile', profile, ...patches.flatMap(path => ['--patch', path])],
@@ -1988,11 +2003,14 @@ async run(input: string | SdkPromptContentBlock[], options?): Promise<RunResult>
     while (true) {
       const notification = await subscription.next()
       if (!received) {                                    // first: wait for the durable inbox receipt…
-        if (notification.method !== 'session.event' || !isInboxReceipt(notification.params.event, messageId)) continue
+        if (notification.method !== 'session.event'
+          || notification.params.sessionId !== this.id    // tree scoping: only this session's events count
+          || !isInboxReceipt(notification.params.event, messageId)) continue
         received = true                                   // …proving the prompt is committed, not just sent
       }
       collect(notification)                               // then gather events…
-      if (notification.method === 'session.status'        // …until the whole agent reports idle
+      if (notification.method === 'session.status'        // …until this session reports idle
+        && notification.params.sessionId === this.id
         && notification.params.status === 'idle') break
     }
   } finally { subscription.close() }
@@ -2052,8 +2070,25 @@ async handleRequest(method: string, params: Record<string, unknown> | undefined)
   switch (method) {
     case 'initialize':      return this.initialize(params as unknown as InitializeParams)   // validates route, mounts fallback adapter
     case 'session/prompt':  return this.prompt(params as unknown as SessionPromptParams)     // getOrCreateSession + agent.followup()
-    case 'session/resume':  return this.resume({ sessionId })                               // open persisted; rejects if missing/occupied
-    case 'session/wait':    return this.wait({ sessionId })                                 // idle loop incl. waitForChildren
+    case 'session/resume': {                                                              // open persisted; rejects if missing/occupied
+      const sessionId = params?.sessionId
+      if (typeof sessionId !== 'string' || sessionId.length === 0) throw new TypeError('session/resume requires a non-empty sessionId string')
+      return this.resume({ sessionId })
+    }
+    case 'session/wait': {                                                                // idle loop incl. waitForChildren
+      const sessionId = params?.sessionId
+      if (typeof sessionId !== 'string') throw new TypeError('session/wait requires a sessionId string')
+      return this.wait({ sessionId })
+    }
+    case 'session/working-directory/get':                                                  // read a session's effective directory
+    case 'session/working-directory/set': {                                                // change it (model-visible transition)
+      if (typeof params?.sessionId !== 'string' || params.sessionId.length === 0) {
+        throw new TypeError('working-directory requests require a non-empty sessionId')
+      }
+      if (method === 'session/working-directory/get') return this.getWorkingDirectory({ sessionId: params.sessionId })
+      if (typeof params.path !== 'string') throw new TypeError('working-directory set requires a path string')
+      return this.setWorkingDirectory({ sessionId: params.sessionId, path: params.path })
+    }
     case 'shutdown':        return this.shutdown()                                          // memoized, drains descendants first
     default: throw new Error(`unknown DeepSeek Harness SDK runtime method: ${method}`)       // → JSON-RPC error frame
   }
@@ -2120,7 +2155,7 @@ flush(options?: SessionHandleFlushOptions): Promise<void> {
 export function assertContiguous(id: SessionId, events: readonly SessionEvent[], cursor: number): void {
   for (const [index, event] of events.entries()) {
     if (event.seq !== cursor + index)            // seq must continue the stored log with no gaps or overlaps
-      throw new Error(`append seq mismatch for "${id}": expected ${cursor + index}…, got ${event.seq}`)
+      throw new Error(`append seq mismatch for "${id}": expected ${cursor + index} at index ${index}, got ${event.seq}`)
   }
 }
 export function assertVersion(meta, location?): void {
@@ -2135,6 +2170,7 @@ export function assertVersion(meta, location?): void {
 
 ```ts
 export async function readColdSessionLog(persistence, sessionId, signal?): Promise<ColdSessionLog> {
+  const options = signal === undefined ? undefined : { signal }
   const handle = await persistence.open(sessionId, 'read', options)  // read handle: no lock, no mutation
   let read: SessionHandleReadResult
   try { read = await handle.read(0, undefined, options) }
@@ -2194,9 +2230,9 @@ flowchart LR
         SV["⭐ HarnessSdkJsonRpcServer"]
         AG["agents.create / resume"]
         SP["ctx.sessionPersistence"]
-        BE["JsonlBackend"]
+        BE["JsonlSessionPersistence"]
     end
-    subgraph DISK["DSH_HOME session root"]
+    subgraph DISK["$DSH_HOME/sessions (session root)"]
         F["--project-slug--/session-id/session.vN.jsonl.zstd"]
     end
     subgraph Q["Read path"]
@@ -2235,17 +2271,17 @@ This subsystem answers: *what* runs (composable agent runtimes), *who* can deleg
 
 ### Key files
 
-- ⭐ `packages/bundle/sdk-minimal/cordis.patch.yml` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/sdk-minimal/cordis.patch.yml — the complete minimal composition (eval rig)
-- `packages/bundle/sdk-minimal/README.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/bundle/sdk-minimal/README.md — profile contract and guarantees
-- ⭐ `python/sdk/examples/minimal.py` — https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk/examples/minimal.py — headless eval entry point
-- `BENCHMARK.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/BENCHMARK.md — how to run benchmark tasks (separate workspace + session ID per task)
-- `packages/preset/agent-preset-registry/src/definition.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/preset/agent-preset-registry/src/definition.ts — `PresetDefinition` + YAML validation
-- `packages/preset/agent-preset-registry/src/mount.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/preset/agent-preset-registry/src/mount.ts — live `PresetMount` (fiber tree per revision)
-- ⭐ `packages/subagent/tool-subagent/src/index.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/tool-subagent/src/index.ts — model-facing `subagent` tool; preset-based child config
-- `packages/subagent/subagent/src/child-agent.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/subagent/subagent/src/child-agent.ts — depth budget + child `AgentOptions` resolution
-- `benchmarks/AGENTS.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/AGENTS.md — perf-benchmark rules (gates, workers, budgets)
-- `benchmarks/terminal-io/terminal-io.bench.ts` — https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/terminal-io/terminal-io.bench.ts — example benchmark: task def + scoring
-- `docs/tool-catalog.md` — https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/tool-catalog.md — full tool catalog (superset of the minimal surface)
+- ⭐ `packages/bundle/sdk-minimal/cordis.patch.yml` — [cordis.patch.yml](./packages/bundle/sdk-minimal/cordis.patch.yml) — the complete minimal composition (eval rig)
+- `packages/bundle/sdk-minimal/README.md` — [README.md](./packages/bundle/sdk-minimal/README.md) — profile contract and guarantees
+- ⭐ `python/sdk/examples/minimal.py` — [minimal.py](./python/sdk/examples/minimal.py) — headless eval entry point
+- `BENCHMARK.md` — [BENCHMARK.md](./BENCHMARK.md) — how to run benchmark tasks (separate workspace + session ID per task)
+- `packages/preset/agent-preset-registry/src/definition.ts` — [definition.ts](./packages/preset/agent-preset-registry/src/definition.ts#L5-L11) — `PresetDefinition` + YAML validation
+- `packages/preset/agent-preset-registry/src/mount.ts` — [mount.ts](./packages/preset/agent-preset-registry/src/mount.ts#L67-L83) — live `PresetMount` (fiber tree per revision)
+- ⭐ `packages/subagent/tool-subagent/src/index.ts` — [index.ts](./packages/subagent/tool-subagent/src/index.ts#L146-L150) — model-facing `subagent` tool; preset-based child config
+- `packages/subagent/subagent/src/child-agent.ts` — [child-agent.ts](./packages/subagent/subagent/src/child-agent.ts#L49-L58) — depth budget + child `AgentOptions` resolution
+- `benchmarks/AGENTS.md` — [AGENTS.md](./benchmarks/AGENTS.md) — perf-benchmark rules (gates, workers, budgets)
+- `benchmarks/terminal-io/terminal-io.bench.ts` — [terminal-io.bench.ts](./benchmarks/terminal-io/terminal-io.bench.ts) — example benchmark: task def + scoring
+- `docs/tool-catalog.md` — [tool-catalog.md](./docs/tool-catalog.md) — full tool catalog (superset of the minimal surface)
 
 ### The minimal composition (core — the eval rig)
 
@@ -2284,7 +2320,7 @@ This subsystem answers: *what* runs (composable agent runtimes), *who* can deleg
         compression: none
 ```
 
-Note what is **absent** vs `dsh-base`: text file tools, skills, jobs, subagents, telemetry, managed credentials. The agent's whole world is: shell, `read_image`, `working_directory`.
+Note what is **absent** vs `dsh-base`: text file tools, skills, model-facing job tools, subagents, telemetry, managed credentials. (The `jobs` *service* row — `@deepseek-ai/dsh-jobs-local` — is still mounted as infrastructure; only `dsh-tool-jobs`, which registers the `job_output`/`job_list`/`job_kill` tools, is omitted.) The agent's whole world is: shell, `read_image`, `working_directory`.
 
 ### Headless eval entry (core)
 
@@ -2381,18 +2417,18 @@ This chapter is the repo's quality machinery: the tiered test suite (`docs/testi
 
 ### Key files
 
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/testing.md — the testing policy: tiers, execution rules, when a snapshot is required
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/package.json — every command below, verbatim from `scripts`
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/AGENTS.md — benchmark authoring rules (gates, workers, budgets, report)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/terminal-io/terminal-io.bench.ts — example benchmark: task def + scoring
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/terminal-io/terminal-io.worker.ts — isolated measurement worker
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/support/scaling-report.ts — `recordTimings` / `recordPeakMemory` report sink
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/support/built-worker.ts — `runBuiltBenchmarkWorker` (fresh child, timeout, `--expose-gc`)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/support/calibration.ts — `ciTimeBudget` (reference-machine → CI time scale)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/benchmarks/tsdown.config.ts — worker bundling (keeps `@deepseek-ai/*` external)
-- ⭐ https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk/examples/minimal.py — headless eval entry point
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/BENCHMARK.md — eval-run rules (separate workspace + session ID per task)
-- https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/session-query/session-query/src/cold-read.ts — read a stored log without taking ownership
+- ⭐ [testing.md](./docs/testing.md) — the testing policy: tiers, execution rules, when a snapshot is required
+- [package.json](./package.json) — every command below, verbatim from `scripts`
+- ⭐ [AGENTS.md](./benchmarks/AGENTS.md) — benchmark authoring rules (gates, workers, budgets, report)
+- [terminal-io.bench.ts](./benchmarks/terminal-io/terminal-io.bench.ts#L59-L65) — example benchmark: task def + scoring
+- [terminal-io.worker.ts](./benchmarks/terminal-io/terminal-io.worker.ts) — isolated measurement worker
+- [scaling-report.ts](./benchmarks/support/scaling-report.ts) — `recordTimings` / `recordPeakMemory` report sink
+- [built-worker.ts](./benchmarks/support/built-worker.ts#L30-L55) — `runBuiltBenchmarkWorker` (fresh child, timeout, `--expose-gc`)
+- [calibration.ts](./benchmarks/support/calibration.ts) — `ciTimeBudget` (reference-machine → CI time scale)
+- [tsdown.config.ts](./benchmarks/tsdown.config.ts) — worker bundling (keeps `@deepseek-ai/*` external)
+- ⭐ [minimal.py](./python/sdk/examples/minimal.py) — headless eval entry point
+- [BENCHMARK.md](./BENCHMARK.md) — eval-run rules (separate workspace + session ID per task)
+- [cold-read.ts](./packages/session-query/session-query/src/cold-read.ts) — read a stored log without taking ownership
 
 ### Test tiers at a glance
 
@@ -2472,7 +2508,7 @@ async function sample(capacity: number, mode: string): Promise<TerminalIoReport>
     args: [String(capacity), mode],                   // fixed synthetic input, argv-passed
     timeoutMs: 120_000, exposeGc: true,               // bounded child; --expose-gc for heap measurement
   })
-  if (outcome.timedOut || outcome.exitCode !== 0 || outcome.report === undefined) {
+  if (outcome.timedOut || outcome.signal !== null || outcome.exitCode !== 0 || outcome.report === undefined) {
     throw new Error('terminal I/O worker failed: ' + JSON.stringify(outcome))
   }
   return outcome.report
@@ -2480,7 +2516,7 @@ async function sample(capacity: number, mode: string): Promise<TerminalIoReport>
 
 it('bounds steady overflow cost as retained terminal capacity grows 32 times', async () => {
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    small.push(await sample(128 * 1024, 'steady'))     // fresh child per sample: private mkdtemp root
+    small.push(await sample(128 * 1024, 'steady'))     // fresh child per sample (inherits the bench cwd)
     large.push(await sample(4 * MIB, 'steady'))
   }
   const capacityRatio = median(large.map(r => r.ingestMs)) / median(small.map(r => r.ingestMs))
@@ -2490,8 +2526,11 @@ it('bounds steady overflow cost as retained terminal capacity grows 32 times', a
     // ...
   }, { smallIngestMs: ingestBudgetMs, /* ... */ })    // budgets passed alongside measurements
   expect(capacityRatio).toBeLessThanOrEqual(MAX_CAPACITY_RATIO)   // scaling gate
-  expect(median(rows.map(r => r.ingestMs))).toBeLessThanOrEqual(ingestBudgetMs)  // wall-clock gate
-  expect(Math.max(...rows.map(r => r.retainedHeapBytes))).toBeLessThanOrEqual(MAX_RETAINED_HEAP_BYTES)  // memory gate
+  for (const rows of [small, large]) {                           // both capacities face every gate
+    expect(median(rows.map(r => r.ingestMs))).toBeLessThanOrEqual(ingestBudgetMs)  // wall-clock gate
+    expect(median(rows.map(r => r.completeMs))).toBeLessThanOrEqual(completeBudgetMs)
+    expect(Math.max(...rows.map(r => r.retainedHeapBytes))).toBeLessThanOrEqual(MAX_RETAINED_HEAP_BYTES)  // memory gate
+  }
 })
 ```
 
@@ -2517,7 +2556,7 @@ console.log(JSON.stringify(await measure(capacityBytes, mode)))  // report cross
 
 ```mermaid
 flowchart LR
-    A["*.bench.ts (Vitest)<br/>fixed synthetic input"] --> B["runBuiltBenchmarkWorker<br/>fresh child, private mkdtemp root<br/>timeout + --expose-gc"]
+    A["*.bench.ts (Vitest)<br/>fixed synthetic input"] --> B["runBuiltBenchmarkWorker<br/>fresh child process, bench cwd<br/>timeout + --expose-gc"]
     B --> C["*.worker.js (plain Node)<br/>timed work, JSON report on stdout"]
     C --> D["median over N attempts"]
     D --> E["recordTimings / recordPeakMemory<br/>→ .dsh-report/report.html"]
@@ -2543,11 +2582,11 @@ Per `benchmarks/AGENTS.md`: one directory per measured user path; `*.bench.ts` h
 # BENCHMARK.md rule: separate workspaces AND session IDs per task.
 DSH_HOME=/tmp/dsh-eval-home python python/sdk/examples/minimal.py \
   "create /tmp/eval-ws/answer.txt containing the word done" \
-  --workspace /tmp/eval-ws --dsh-home /tmp/dsh-eval-home \
+  --workspace /tmp/eval-ws \
   --session-id eval-001
 ```
 
-The minimal surface (shell + `read_image` + `working_directory`, fixed persona, no subagents) is the stable observation/action space: fixed tools ⇒ comparable trajectories across runs and model versions. The Python SDK requires an explicit `dsh_home` — it never discovers `~/.dsh` implicitly, so eval runs can't clobber your interactive home.
+The minimal surface (bash/pwsh + `read`/`write`/`edit`/`read_image` + `working_directory`, fixed persona, `agents: []` so no subagents) is the stable observation/action space: fixed tools ⇒ comparable trajectories across runs and model versions. The Python SDK requires an explicit `dsh_home` — it never discovers `~/.dsh` implicitly, so eval runs can't clobber your interactive home.
 
 ### Reading JSONL trajectories
 
@@ -2567,7 +2606,7 @@ Each line is one event; the first line is the `{"type":"session", ...}` header. 
 # Tool calls carry callId/name/arguments; results pair back by callId.
 python3 - <<'EOF'
 import json, gzip
-path = "/tmp/dsh-eval-home/sessions/--tmp-eval-ws--/eval-001/session.jsonl"
+path = "/tmp/dsh-eval-home/sessions/--tmp-eval-ws--/eval-001/session.v4.jsonl"
 opener = gzip.open if path.endswith(".zstd") else open
 with opener(path, "rt") as f:
     for line in f:
@@ -2582,7 +2621,7 @@ with opener(path, "rt") as f:
 EOF
 ```
 
-A tiny grader — "did the shell produce file X?" — is five lines once you can read the trajectory:
+A tiny grader — "did the shell produce file X?" — is a few lines once you can read the trajectory:
 
 ```python
 # grader.py — scores one minimal-profile trajectory
@@ -2613,7 +2652,7 @@ Match evidence to the surface: focused behavior tests for the change, `doc-sync`
 - [ ] Run `pnpm run test` scoped to one package's `tests/` dir and read a failing assertion end to end
 - [ ] Explain why `pnpm run test:coverage` (not `pnpm run test`) is the CI coverage gate, and what "per-file 100%" means for a file you touch
 - [ ] Run `pnpm run test:snapshot` and describe what one scenario's parent/child session files represent
-- [ ] Run one benchmark suite (`pnpm run test:bench`, terminal-io) and read the generated `benchmarks/.dsh-report/report.html`
+- [ ] Run one benchmark suite (`pnpm run test:bench:built terminal-io`, after the builds) and read the generated `benchmarks/.dsh-report/report.html`
 - [ ] Point at one `expect(...).toBeLessThanOrEqual(...)` in `terminal-io.bench.ts` and name the reviewed constant behind the budget
 - [ ] Run `python/sdk/examples/minimal.py` with a disposable `DSH_HOME`, then find the session's JSONL and identify a full turn boundary
 - [ ] Write a 5-line grader that scores a trajectory (e.g. "did the shell produce file X?") and run it against two runs
@@ -2654,4 +2693,4 @@ Match evidence to the surface: focused behavior tests for the change, `doc-sync`
 | Drive dsh programmatically | TS SDK (`packages/sdk`) or Python SDK (`python/sdk`) |
 | Run an eval | `sdk-minimal` profile + `python/sdk/examples/minimal.py` + external grader |
 
-*Guide generated 2026-10-16 from `deepseek-ai/deepseek-harness@master` (commit `86a4022`). Extended with Cordis fundamentals, a source reading roadmap, a local dev/debugging guide, cancellation and waterfall deep dives, a custom plugin tutorial, sandbox internals, and a testing/benchmarking guide. Code excerpts are from the MIT-licensed upstream repo; links point at the upstream `master` branch.*
+*Guide generated 2026-10-16 from the forked snapshot pinned at upstream commit `86a4022`. Extended with Cordis fundamentals, a source reading roadmap, a local dev/debugging guide, cancellation and waterfall deep dives, a custom plugin tutorial, sandbox internals, and a testing/benchmarking guide. All code references are local relative paths (`[name](./path#Lstart-Lend`) resolving against this checkout; the underlying code is MIT-licensed.*
