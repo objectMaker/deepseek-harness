@@ -387,6 +387,23 @@ flowchart TD
     H -->|failure| J["StartupError →\nreportStartupFailure → exit 1"]
 ```
 
+### One boot path, three shipped apps
+
+Everything above boots a *profile* — and the same profile machinery is what ships in all three product surfaces. None of them reimplements the agent:
+
+| Surface | Lives in | How it reaches the boot path |
+|---|---|---|
+| CLI | `apps/cli` | [bin.ts](./apps/cli/src/bin.ts) → `runProfile()`, as traced above |
+| Web | `apps/web` | the `web` profile serves this frontend; you met it as `dsh web` |
+| Desktop | `apps/desktop` + `apps/desktop-host` | an Electron app acting as an *installed carrier* around the same profile system |
+
+The desktop app is packaging, not a second harness: it is built with Electron and electron-builder ([electron-builder.config.mjs](./apps/desktop/electron-builder.config.mjs#L1-L5) re-exports the config factory; [package.json](./apps/desktop/package.json#L65-L66) pins `electron` and `electron-builder`), with `installer/`, `packaging/`, and `publishing/` directories and a dedicated Windows signing setup. The tell is in the CLI itself: `RunCliOptions` reserves a `manageDesktopProfile` flag "for Desktop's existing profile; reserved for its installed carrier" ([bin.ts](./apps/cli/src/bin.ts#L16-L20)) — the desktop app drives profiles through the CLI's machinery rather than booting its own agent loop.
+
+**Mental model:** a profile is the product; CLI, web, and desktop are three surfaces over the same profiles. When you add a capability, you add a plugin to a profile — never a surface-specific fork.
+
+- [ ] List the apps under `apps/` and name each one's entry file
+- [ ] Find where the desktop app hands off to the profile boot instead of constructing an agent itself
+
 ### Presets vs profiles (read this once)
 
 `packages/preset/` is an **orthogonal axis**: profiles decide *which plugins mount* (composition), presets declare *what an Agent can do* (tools, prompts, skills per Agent revision). You add a surface by editing bundles/profiles; you change agent behavior by editing presets. Don't mix the two.
@@ -1711,6 +1728,32 @@ flowchart LR
 - [ ] Configure an MCP server; watch its tools appear as `mcp__<server>__<tool>` entries and call one through the bridge
 - [ ] Write a `SKILL.md`, expose it via a skill provider, and load it through the `skill` tool
 
+### Running Python from TypeScript: PTC mode and the experimental Python runtime
+
+First, fix the direction in your head — there is **no persistent Python server anywhere in this repo**. Every cross-language path is a subprocess that the host spawns and owns:
+
+| Direction | Mechanism | Lifetime |
+|---|---|---|
+| Python → TS (the SDKs) | Python spawns `dsh --profile sdk`; newline-delimited JSON-RPC over stdio | one subprocess per client (Chapter 4) |
+| TS → Python (PTC mode) | TS spawns a fresh CPython per program; JSON-lines frames on fd 3 | one process per program run |
+| TS → Python (the `bash` tool) | a plain shell command like any other | one process per command |
+
+**PTC mode** is the context for row 2. Under `mode: ptc`, the tools package collapses the visible tool set into a generated SDK plus one reserved `run_code` transport ([ptc.ts](./packages/core/tools/src/ptc.ts)); the model writes a program, and a *PTC runtime* executes it. The shipped runtime is TypeScript ([index.ts](./packages/ptc-runtime/ptc-runtime-node/src/index.ts#L37) — `NodePtcRuntime extends PtcRuntime`). The Python runtime is a separate, experimental package you register beside `dsh-tools` in an explicit composition — **no shipped profile enables it**.
+
+[PythonPtcRuntime](./packages/experimental/ptc-runtime-python/src/index.ts#L744) works like this:
+
+- **Fresh process per run.** `run()` spawns CPython 3.10+ ([index.ts](./packages/experimental/ptc-runtime-python/src/index.ts#L1165-L1172)) with four stdio pipes; fds 0–2 stay the program's own stdin/stdout/stderr, and the protocol rides **fd 3**. No state — variables, imports, files in memory — survives between runs.
+- **The wire is frames, not RPC.** The vocabulary is defined twice, once per side: [protocol.ts](./packages/experimental/ptc-runtime-python/src/protocol.ts) (host) and [protocol.py](./packages/experimental/ptc-runtime-python/py/protocol.py#L48-L99) (child). Host → child: `boot` (caps + namespace declarations), `run` (the program body), one `reply` per call. Child → host: `boot-ack`, `call` (the program invoking a host binding — this is how Python code reaches tools mid-run), `log`, `done`.
+- **Program model.** The submitted code is the body of an async function: top-level `await` and `return` work, and only `print()` output plus the returned JSON value become the program's output.
+- **Same sandbox, validated budgets.** Runs confine through the shared sandbox service under the calling session's policy (`read-only` / `workspace-write` confined; `danger-full-access` bypasses, disclosed in `result.sandbox`). Resource budgets are `Config` fields checked at load, not per run: `cpuSeconds` (60), `maxWallMs` (600000), `addressSpaceMb` (512; not applied on Darwin), `maxLogBytes` (65536), `maxValueBytes` (32768). The interpreter is resolved and version-probed once at load and frozen; the child receives only `TMPDIR` in its environment — no `PATH`, `HOME`, or ambient credentials.
+- **Unix only.** Load rejects Windows outright ([index.ts](./packages/experimental/ptc-runtime-python/src/index.ts#L785)): the backend depends on POSIX rlimits, fd-3 stdio, and process-group signals.
+
+**Pitfall:** if you catch yourself designing around "the Python server's methods," you have the SDK direction (Chapter 4) and the PTC direction swapped. In PTC, Python is the *guest*: it asks the host for things via `call` frames, and the host can kill it by process group at any budget breach.
+
+- [ ] Read the frame vocabulary in [protocol.py](./packages/experimental/ptc-runtime-python/py/protocol.py#L48-L99) and trace one `call`/`reply` round trip through the host side in [index.ts](./packages/experimental/ptc-runtime-python/src/index.ts#L1165-L1172)
+- [ ] Run `pnpm run demo:ptc -- "task"` and find where the TypeScript runtime — not Python — executed the model's program
+- [ ] Name the three subprocess patterns from the table above and what protocol each one speaks
+
 ---
 ## Complete Custom Plugin Development Tutorial
 
@@ -2213,6 +2256,20 @@ with DeepSeekHarness(                       # usage: lazy start, owned subproces
 print(result.final_response)
 ```
 
+### The bundled runtime is a binary wheel
+
+Split the two PyPI packages cleanly in your head — only one of them contains code you run:
+
+- **`deepseek-harness-sdk`** (`python/sdk`) — pure Python: the JSON-RPC client and turns API from the launch path above. No binaries.
+- **`deepseek-harness-runtime-bin`** (`python/sdk-runtime`) — **wheels only, no sdist.** It packages the `dsh` CLI and its closed Node dependency tree as one native executable, so an SDK install needs **no system Node.js**. The wheel also installs a `dsh` console command that forwards to the bundled executable (and still demands a non-empty `DSH_HOME`).
+
+The platform matrix is data, not prose: [platforms.json](./python/sdk-runtime/platforms.json#L1-L22) fixes five targets — `linux-x64` and `linux-arm64` (`manylinux_2_28`), `macos-arm64` and `macos-x64` (`macosx_14_0`), and `win-x64` (`win_amd64`). There is **no Windows arm64 wheel**. Each payload's executable is named `deepseek-harness-sdk-runtime-<platform>-<arch>` (`.exe` on Windows), and the wheel carries target-native sidecars beside it: `rg` on every platform, plus a `-spawn-helper` for `node-pty` on macOS.
+
+What the wheel deliberately does **not** carry: CPython, standalone Node, pnpm, and the Office sidecar are explicit downloads (`download_primary_runtime()` / `download_office()`), hash-verified and cached under `~/.cache/deepseek-harness/resources`. Importing the SDK or starting a profile never downloads anything implicitly.
+
+- [ ] List the five wheel platforms from [platforms.json](./python/sdk-runtime/platforms.json#L1-L22) and explain why the runtime package publishes no sdist
+- [ ] Unzip a runtime wheel and locate the executable and its `rg` sidecar
+
 ### Architecture
 
 ```mermaid
@@ -2691,6 +2748,8 @@ Match evidence to the surface: focused behavior tests for the change, `doc-sync`
 | Change where commands execute | Swap the `ctx.sandbox` / `ctx.subprocess` provider |
 | Read/persist sessions | `packages/session/*`, `packages/session-query/*` |
 | Drive dsh programmatically | TS SDK (`packages/sdk`) or Python SDK (`python/sdk`) |
+| Run model-written Python code | PTC mode + `packages/experimental/ptc-runtime-python` (Unix only, experimental) |
+| Ship dsh as an app | CLI (`apps/cli`), web (`apps/web`), desktop/Electron (`apps/desktop`); Python binary wheel (`python/sdk-runtime`) |
 | Run an eval | `sdk-minimal` profile + `python/sdk/examples/minimal.py` + external grader |
 
-*Guide generated 2026-10-16 from the forked snapshot pinned at upstream commit `86a4022`. Extended with Cordis fundamentals, a source reading roadmap, a local dev/debugging guide, cancellation and waterfall deep dives, a custom plugin tutorial, sandbox internals, and a testing/benchmarking guide. All code references are local relative paths (`[name](./path#Lstart-Lend`) resolving against this checkout; the underlying code is MIT-licensed.*
+*Guide generated 2026-10-16 from the forked snapshot pinned at upstream commit `86a4022`. Extended with Cordis fundamentals, a source reading roadmap, a local dev/debugging guide, cancellation and waterfall deep dives, a custom plugin tutorial, sandbox internals, a testing/benchmarking guide, and the TypeScript↔Python execution directions with app packaging. All code references are local relative paths (`[name](./path#Lstart-Lend`) resolving against this checkout; the underlying code is MIT-licensed.*
